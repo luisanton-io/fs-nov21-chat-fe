@@ -1,7 +1,7 @@
 import logo from './logo.svg';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
-import { Container, Row, Col, Form, ListGroup } from 'react-bootstrap';
+import { Container, Row, Col, Form, ListGroup, Button } from 'react-bootstrap';
 import { useState, useEffect, useMemo } from 'react';
 import io from "socket.io-client"
 
@@ -18,8 +18,13 @@ function App() {
   const [users, setUsers] = useState([])
   const [messages, setMessages] = useState([])
 
-
   const [loggedIn, setLoggedIn] = useState(false)
+
+  const [room, setRoom] = useState("blue")
+
+  const toggleRoom = () => {
+    setRoom(room === "blue" ? "red" : "blue")
+  }
 
   const fetchOnlineUsers = async () => {
     const response = await fetch(ADDRESS + "/online-users")
@@ -38,10 +43,9 @@ function App() {
       fetchOnlineUsers().then(setUsers)
     })
 
-    socket.on("didLogin", () => {
-      setLoggedIn(true)
+    socket.on("userLeft", () => {
+      fetchOnlineUsers().then(setUsers)
     })
-
     console.log(messages) // []
 
     socket.on("incomingMessage", ({ message }) => {
@@ -55,13 +59,28 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const didLoginHandler = async () => {
+      setLoggedIn(true)
+      const response = await fetch(ADDRESS + "/rooms/" + room)
+      const { messages } = await response.json()
+      setMessages(messages)
+    }
+
+    socket.on("didLogin", didLoginHandler)
+
+    return () => {
+      socket.off("didLogin", didLoginHandler)
+    }
+  }, [room])
+
+  useEffect(() => {
     fetchOnlineUsers().then(setUsers)
   }, [])
 
   const handleSubmit = e => {
     e.preventDefault();
     console.log("handleSubmit")
-    socket.emit('setUsername', { username })
+    socket.emit('setUsername', { username, room })
   }
 
   const handleMessage = e => {
@@ -76,8 +95,10 @@ function App() {
       }
     }
 
-    socket.emit('outgoingMessage', { message })
+    socket.emit('outgoingMessage', { message, room })
     setMessages(m => [...m, message])
+
+    setText("")
 
   }
 
@@ -86,8 +107,22 @@ function App() {
       <Row style={{ height: '90vh' }}>
         <Col xs={8} className="d-flex flex-column">
           {/* Here we will set our username and display the chat */}
-          <Form onSubmit={handleSubmit}>
-            <Form.Control disabled={loggedIn} type="text" value={username} onChange={e => setUsername(e.target.value)} />
+          <Form onSubmit={handleSubmit} className="d-flex">
+            <Form.Control
+              disabled={loggedIn}
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              className="me-2" />
+
+            <Button
+              disabled={loggedIn}
+              variant={room === "blue" ? "primary" : "danger"}
+              onClick={toggleRoom}
+            >
+              Room
+            </Button>
+
           </Form>
           {/* here we want the messages! */}
           <div className="d-flex flex-column flex-grow-1 py-5 px-2">
@@ -107,7 +142,7 @@ function App() {
         <Col xs={4}>
           {/* Here we will display the online users */}
           <ListGroup>
-            {users.filter(user => user.socketId !== socket.id).map(user => (
+            {users.filter(user => user.socketId !== socket.id && user.room === room).map(user => (
               <ListGroup.Item key={user.socketId}>{user.username}</ListGroup.Item>
             ))}
           </ListGroup>
